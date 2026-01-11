@@ -1,0 +1,26 @@
+[package]
+name = "friendly-pow-rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Friendly POW Rust Implementation"]
+description = "Rust/WASM implementation of Friendly Captcha Proof-of-Work solver"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+blake2 = "0.10"
+getrandom = { version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O4", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]

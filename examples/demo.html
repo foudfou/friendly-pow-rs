@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Friendly POW Rust Demo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        label {
+            display: block;
+            margin-top: 15px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .output {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #4CAF50;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .info {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .stat {
+            background: #e8f5e9;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+        }
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #2e7d32;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🦀 Friendly POW Rust/WASM Demo</h1>
+
+        <label for="difficulty">
+            Difficulty Level:
+            <span class="info" id="difficultyInfo"></span>
+        </label>
+        <select id="difficulty">
+            <option value="50">Very Easy (d=50, ~73 attempts)</option>
+            <option value="80">Easy (d=80, ~1,200 attempts)</option>
+            <option value="120" selected>Medium (d=120, ~32,768 attempts)</option>
+            <option value="150">Hard (d=150, ~524,288 attempts)</option>
+            <option value="175">Very Hard (d=175, ~16.7M attempts)</option>
+            <option value="200">Extreme (d=200, ~33.5M attempts)</option>
+        </select>
+
+        <label for="puzzleData">
+            Puzzle Data (hex or leave default):
+            <span class="info">First few bytes of the puzzle buffer</span>
+        </label>
+        <input type="text" id="puzzleData" value="01020304050607080910" placeholder="Hex data">
+
+        <label for="maxAttempts">
+            Max Attempts:
+            <span class="info">Maximum number of nonces to try</span>
+        </label>
+        <input type="number" id="maxAttempts" value="100000000" min="1000">
+
+        <button id="solveBtn" onclick="solvePuzzle()">🚀 Solve Puzzle</button>
+
+        <div id="output" class="output" style="display: none;"></div>
+
+        <div id="stats" class="stats" style="display: none;">
+            <div class="stat">
+                <div class="stat-label">Time Taken</div>
+                <div class="stat-value" id="timeTaken">-</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Hash Rate</div>
+                <div class="stat-value" id="hashRate">-</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import init, { Solver, difficulty_to_threshold } from '../pkg/friendly_pow_rs.js';
+
+        let solver;
+
+        async function initWasm() {
+            await init();
+            solver = new Solver();
+            console.log('WASM module loaded successfully!');
+            document.getElementById('solveBtn').disabled = false;
+            // Update difficulty info now that WASM is loaded
+            document.getElementById('difficulty').dispatchEvent(new Event('change'));
+        }
+
+        window.solvePuzzle = async function() {
+            const outputDiv = document.getElementById('output');
+            const statsDiv = document.getElementById('stats');
+            const solveBtn = document.getElementById('solveBtn');
+
+            solveBtn.disabled = true;
+            outputDiv.style.display = 'block';
+            statsDiv.style.display = 'none';
+            outputDiv.textContent = '⏳ Solving puzzle...\n';
+
+            try {
+                // Get inputs
+                const difficulty = parseInt(document.getElementById('difficulty').value);
+                const puzzleHex = document.getElementById('puzzleData').value;
+                const maxAttempts = parseInt(document.getElementById('maxAttempts').value);
+
+                // Convert hex to bytes
+                const puzzleBytes = hexToBytes(puzzleHex);
+
+                // Calculate threshold
+                const threshold = difficulty_to_threshold(difficulty);
+                outputDiv.textContent += `Difficulty: ${difficulty}\n`;
+                outputDiv.textContent += `Threshold: ${threshold}\n`;
+                outputDiv.textContent += `Max attempts: ${maxAttempts.toLocaleString()}\n\n`;
+
+                // Solve
+                const startTime = performance.now();
+                const hash = solver.solve_blake2b(puzzleBytes, threshold, maxAttempts);
+                const endTime = performance.now();
+                const timeTaken = (endTime - startTime) / 1000;
+
+                if (hash.length > 0) {
+                    outputDiv.textContent += '✅ Solution Found!\n\n';
+                    outputDiv.textContent += `Hash: ${bytesToHex(hash)}\n`;
+                    outputDiv.textContent += `Hash value (first 4 bytes): ${hashToU32(hash)}\n`;
+                    outputDiv.textContent += `Solution nonce: ${bytesToHex(solver.get_solution_nonce())}\n`;
+
+                    // Show stats
+                    statsDiv.style.display = 'grid';
+                    document.getElementById('timeTaken').textContent = timeTaken.toFixed(3) + 's';
+
+                    // Estimate hash rate (rough approximation)
+                    const estimatedAttempts = Math.min(maxAttempts, Math.pow(2, 32) / threshold);
+                    const hashRate = (estimatedAttempts / timeTaken / 1000000).toFixed(2);
+                    document.getElementById('hashRate').textContent = hashRate + ' MH/s';
+                } else {
+                    outputDiv.textContent += '❌ No solution found in max attempts.\n';
+                    outputDiv.textContent += 'Try increasing max attempts or reducing difficulty.\n';
+                }
+
+                outputDiv.textContent += `\nTime: ${timeTaken.toFixed(3)}s\n`;
+
+            } catch (error) {
+                outputDiv.textContent += '\n❌ Error: ' + error.message + '\n';
+                console.error(error);
+            } finally {
+                solveBtn.disabled = false;
+            }
+        };
+
+        function hexToBytes(hex) {
+            hex = hex.replace(/\s/g, '');
+            const bytes = new Uint8Array(hex.length / 2);
+            for (let i = 0; i < hex.length; i += 2) {
+                bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+            }
+            return bytes;
+        }
+
+        function bytesToHex(bytes) {
+            return Array.from(bytes)
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
+        function hashToU32(hash) {
+            return (hash[0] | (hash[1] << 8) | (hash[2] << 16) | (hash[3] << 24)) >>> 0;
+        }
+
+        // Update difficulty info
+        document.getElementById('difficulty').addEventListener('change', function() {
+            const d = parseInt(this.value);
+            const threshold = difficulty_to_threshold(d);
+            const expectedAttempts = Math.floor(Math.pow(2, 32) / threshold);
+            document.getElementById('difficultyInfo').textContent =
+                `Threshold: ${threshold.toLocaleString()}, Expected: ~${formatNumber(expectedAttempts)} attempts`;
+        });
+
+        function formatNumber(n) {
+            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+            if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+            return n.toString();
+        }
+
+        // Initialize
+        document.getElementById('solveBtn').disabled = true;
+        initWasm().catch(console.error);
+    </script>
+</body>
+</html>
