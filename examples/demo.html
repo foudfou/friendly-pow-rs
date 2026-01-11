@@ -93,6 +93,16 @@
     <div class="container">
         <h1>🦀 Friendly POW Rust/WASM Demo</h1>
 
+        <label for="variant">
+            Solver Variant:
+            <span class="info">Different optimization levels</span>
+        </label>
+        <select id="variant">
+            <option value="basic">Basic (Baseline)</option>
+            <option value="optimized" selected>Optimized (State Reuse - Recommended)</option>
+            <option value="simd">SIMD (Fastest, if supported)</option>
+        </select>
+
         <label for="difficulty">
             Difficulty Level:
             <span class="info" id="difficultyInfo"></span>
@@ -160,6 +170,7 @@
 
             try {
                 // Get inputs
+                const variant = document.getElementById('variant').value;
                 const difficulty = parseInt(document.getElementById('difficulty').value);
                 const puzzleHex = document.getElementById('puzzleData').value;
                 const maxAttempts = parseInt(document.getElementById('maxAttempts').value);
@@ -169,13 +180,27 @@
 
                 // Calculate threshold
                 const threshold = difficulty_to_threshold(difficulty);
+                outputDiv.textContent += `Variant: ${variant}\n`;
                 outputDiv.textContent += `Difficulty: ${difficulty}\n`;
                 outputDiv.textContent += `Threshold: ${threshold}\n`;
                 outputDiv.textContent += `Max attempts: ${maxAttempts.toLocaleString()}\n\n`;
 
-                // Solve
+                // Solve using selected variant
                 const startTime = performance.now();
-                const hash = solver.solve_blake2b(puzzleBytes, threshold, maxAttempts);
+                let hash;
+                switch(variant) {
+                    case 'basic':
+                        hash = solver.solve_blake2b(puzzleBytes, threshold, maxAttempts);
+                        break;
+                    case 'optimized':
+                        hash = solver.solve_blake2b_optimized(puzzleBytes, threshold, maxAttempts);
+                        break;
+                    case 'simd':
+                        hash = solver.solve_blake2b_simd(puzzleBytes, threshold, maxAttempts);
+                        break;
+                    default:
+                        hash = solver.solve_blake2b_optimized(puzzleBytes, threshold, maxAttempts);
+                }
                 const endTime = performance.now();
                 const timeTaken = (endTime - startTime) / 1000;
 
