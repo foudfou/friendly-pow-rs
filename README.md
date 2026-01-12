@@ -150,22 +150,6 @@ Benchmarks on a modern desktop (your results may vary):
 The `simd` git branch explores optimizations but the `blake2` crate is actually
 highly optimized already.
 
-## Project Structure
-
-```
-friendly-pow-rs/
-├── src/
-│   └── lib.rs              # Main solver implementation
-├── examples/
-│   └── demo.html           # Interactive browser demo
-├── pkg/                    # Generated WASM output (after build)
-├── Cargo.toml              # Rust dependencies
-├── build.sh                # Build script
-└── README.md               # This file
-```
-
-## Comparison with AssemblyScript
-
 ## License
 
 This implementation is provided for educational purposes. The original Friendly Captcha uses a source-available license.
