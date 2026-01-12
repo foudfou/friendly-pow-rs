@@ -1,19 +1,39 @@
 # 🦀 Friendly POW - Rust/WASM Implementation
 
-A high-performance Rust/WebAssembly implementation of the Friendly Captcha Proof-of-Work solver, compatible with the original AssemblyScript version.
+A high-performance Rust/WebAssembly implementation of the Friendly Captcha Proof-of-Work (POW) solver, compatible with the original AssemblyScript version.
 
-## Overview
+## Context
 
-This is a modern Rust implementation that compiles to WebAssembly, offering improved performance and maintainability compared to the original AssemblyScript version.
+The motivation is nothing more than exploring
+[friendly-pow](https://github.com/FriendlyCaptcha/friendly-pow), WASM and a
+rust port, since rust apparently has become the de facto source language for
+WASM as of 2025.
 
-### Key Features
+The rust version seems faster but what is the motivation to do POW in
+WASM in the first place? In comparison,
+[Anubis](https://github.com/TecharoHQ/anubis/blob/main/web/js/worker/sha256-webcrypto.ts)
+uses plain JS/WebCrypto SHA-256.
 
-- ✨ **10-30% faster** than AssemblyScript version
-- 🔒 **Memory safe** Rust implementation
-- 🎯 **Compatible** with Friendly Captcha puzzle format
-- 🧪 **Well tested** with comprehensive test suite
-- 📦 **Small bundle** size (~25-40KB)
-- 🌐 **Easy to use** from JavaScript
+There's probably a tradeoff between speed and friction for bots. So, as is, the
+rust version may be lowering the friction. Friendly Captcha has means to tune
+the difficulty by requiring more solutions to a challenge (`n` parameter):
+
+> One could get lucky or unlucky in how many attempts are required to find a
+> solution. In order to reduce the variance and allow us to show a progress bar
+> to the user we actually have the client find multiple solutions (with a lower
+> difficulty threshold).
+
+Another noticeable difference is FC is seemingly stateless: each challenge is
+signed, the signature is attached to the challenge and the client is expected
+to send it back with the solution. Anubis on the other hand is stateful: no
+signature attached to the challenge, but issued challenges are stored on the
+backend and validated on reception. Pre-compute attacks are prevented because
+of the huge (64 bytes) random nonce.
+
+BTW early 2024 FC introduced
+[v2](https://github.com/FriendlyCaptcha/friendly-captcha-sdk) which now relies
+on *signal collection* (mouse movements etc). Apparently POW has been abandoned
+in favor of behavioral analysis.
 
 ## How It Works
 
@@ -39,11 +59,11 @@ Threshold = floor(2^((255.999 - difficulty) / 8))
 
 | Difficulty | Threshold | Expected Attempts | Time (approx) |
 |------------|-----------|-------------------|---------------|
-| 50 | ~59M | ~73 | <1ms |
-| 120 | ~131K | ~33K | ~10ms |
-| 150 | ~8K | ~524K | ~150ms |
-| 175 | ~362 | ~11.8M | ~4s |
-| 200 | ~128 | ~33.5M | ~10s |
+| 50         | ~59M      | ~73               | <1ms          |
+| 120        | ~131K     | ~33K              | ~10ms         |
+| 150        | ~8K       | ~524K             | ~150ms        |
+| 175        | ~362      | ~11.8M            | ~4s           |
+| 200        | ~128      | ~33.5M            | ~10s          |
 
 ## Prerequisites
 
@@ -84,118 +104,12 @@ wasm-pack build --target bundler --release
 
 ## Usage
 
-### In the Browser
+See `demo.html` and `node.js` [examples](./examples).
 
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <script type="module">
-        import init, { Solver, difficulty_to_threshold } from './pkg/friendly_pow_rs.js';
-
-        async function main() {
-            // Initialize WASM module
-            await init();
-
-            // Create solver
-            const solver = new Solver();
-
-            // Create a puzzle (would normally come from server)
-            const puzzle = new Uint8Array(32);
-            puzzle[0] = 1;
-            puzzle[1] = 2;
-            puzzle[2] = 3;
-
-            // Calculate threshold for difficulty 120
-            const threshold = difficulty_to_threshold(120);
-            console.log('Threshold:', threshold);
-
-            // Solve the puzzle
-            const maxAttempts = 100_000_000;
-            const hash = solver.solve_blake2b(puzzle, threshold, maxAttempts);
-
-            if (hash.length > 0) {
-                console.log('✅ Solution found!');
-                console.log('Hash:', Array.from(hash).map(b => b.toString(16).padStart(2, '0')).join(''));
-                console.log('Solution nonce:', solver.get_solution_nonce());
-            } else {
-                console.log('❌ No solution found');
-            }
-        }
-
-        main();
-    </script>
-</head>
-<body>
-    <h1>Friendly POW Rust Demo</h1>
-</body>
-</html>
-```
-
-### In Node.js
-
-```javascript
-const { Solver, difficulty_to_threshold } = require('./pkg/friendly_pow_rs');
-
-const solver = new Solver();
-const puzzle = Buffer.from([1, 2, 3, 4, 5]);
-const threshold = difficulty_to_threshold(120);
-
-const hash = solver.solve_blake2b(puzzle, threshold, 100_000_000);
-
-if (hash.length > 0) {
-    console.log('Solution found!');
-    console.log('Hash:', Buffer.from(hash).toString('hex'));
-}
-```
-
-## API Reference
-
-### `Solver`
-
-Main solver class.
-
-#### Constructor
-
-```rust
-const solver = new Solver();
-```
-
-#### Methods
-
-##### `solve_blake2b(puzzle, threshold, max_attempts)`
-
-Solve a POW puzzle.
-
-**Parameters:**
-- `puzzle: Uint8Array` - Puzzle buffer (32-64 bytes, will be padded to 128)
-- `threshold: number` - u32 value the hash must be below
-- `max_attempts: number` - Maximum nonces to try (default: 4,294,967,295)
-
-**Returns:** `Uint8Array` - 32-byte hash if found, empty array otherwise
-
-##### `get_solution()`
-
-Get the full 128-byte solution buffer including the nonce.
-
-**Returns:** `Uint8Array` - 128 bytes
-
-##### `get_solution_nonce()`
-
-Get just the solution nonce (last 8 bytes).
-
-**Returns:** `Uint8Array` - 8 bytes
-
-### Helper Functions
-
-#### `difficulty_to_threshold(difficulty)`
-
-Convert difficulty byte to threshold value.
-
-**Parameters:**
-- `difficulty: number` - Difficulty (0-255)
-
-**Returns:** `number` - Threshold value (u32)
+Note in a real world scenario the solver needs to run inside a web worker. FC
+actually uses a
+[WorkerGroup](https://github.com/FriendlyCaptcha/friendly-challenge/blob/master/src/workergroup.ts)
+to distribute puzzles.
 
 ## Testing
 
@@ -219,21 +133,22 @@ wasm-pack test --headless --firefox
 
 2. Serve the demo:
    ```bash
-   cd examples
    python3 -m http.server 8080
    ```
 
-3. Open http://localhost:8080/demo.html
+3. Open http://localhost:8080/examples/demo.html
 
 ## Performance Comparison
 
 Benchmarks on a modern desktop (your results may vary):
 
-| Implementation | Hash Rate | Notes |
-|----------------|-----------|-------|
-| AssemblyScript | ~300 MH/s | Original implementation |
-| Rust (basic) | ~350 MH/s | This implementation |
-| Rust (SIMD) | ~500 MH/s | With blake2b_simd crate |
+| Implementation | Hash Rate | Notes                   |
+|----------------|-----------|-------------------------|
+| AssemblyScript | ~70 KH/s  | Original implementation |
+| Rust (basic)   | ~150 MH/s | This implementation     |
+
+The `simd` git branch explores optimizations but the `blake2` crate is actually
+highly optimized already.
 
 ## Project Structure
 
@@ -250,21 +165,6 @@ friendly-pow-rs/
 ```
 
 ## Comparison with AssemblyScript
-
-### Advantages of Rust
-
-✅ Better performance (10-30% faster)
-✅ Type safety and memory safety
-✅ Access to mature crypto libraries
-✅ Better tooling and IDE support
-✅ Larger ecosystem
-✅ Industry standard for WASM
-
-### When to use AssemblyScript
-
-- Lower barrier for TypeScript developers
-- Smaller bundle size critical
-- Already have working AS codebase
 
 ## License
 

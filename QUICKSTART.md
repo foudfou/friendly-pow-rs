@@ -14,8 +14,6 @@ cargo install wasm-pack
 ## 2. Build the Project
 
 ```bash
-cd /home/foudil/src/rs/friendly-pow-rs
-
 # Quick build (runs tests and builds WASM)
 ./build.sh
 
@@ -28,11 +26,10 @@ wasm-pack build --target web --release   # Build WASM
 
 ```bash
 # Start a local web server
-cd examples
 python3 -m http.server 8080
 
 # Open your browser to:
-# http://localhost:8080/demo.html
+# http://localhost:8080/examples/demo.html
 ```
 
 ## 4. Run Benchmark

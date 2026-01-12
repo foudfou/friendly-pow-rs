@@ -1,0 +1,108 @@
+diff --git a/README.md b/README.md
+index a625e8f..8788007 100644
+--- a/README.md
++++ b/README.md
+@@ -12,6 +12,8 @@ In this document we will call the computational challenge the computer has to so
+ 
+ The WASM is compiled from AssemblyScript, which is more or less a subset of Typescript. The WASM build entrypoint is found at [`src/entryWasm.ts`](./src/entryWasm.ts). The wrappers for the JS and WASM build are found in the `src/api` folder, they both have the same interface.
+ 
++> foudil: AssemblyScript is not exactly TS, it's its own language that looks like TS but with WASM-related primitives. Note in 2026 Rust has become the de facto standard for WASM projects. AssemblyScript still makes sense for JS-heavy teams. FC does have the frontend-code but also a bunch of other language SDKs...
++
+ ## Building this project
+ 
+ Building this project can be tricky, it currently uses an Assemblyscript version that is not the latest. The loader will have to be changed to account for breaking changes if we want to update. The current loader has custom modifications to get bundle size down considerably, something that will need to happen for an upgraded version too. Currently there is little gain if we do so.
+@@ -32,7 +34,7 @@ A solution consists of one or more 8 byte values.
+ The difficulty of a puzzle is encoded in the challenge buffer as a single byte `d`. The _difficulty threshold_ `T` is computed using the formula:
+ 
+ ```
+-T = floor(2^((255.999-d)/8)))
++T = floor(2^((255.999-d)/8))
+ ```
+ 
+ In Javascript this is defined as:
+@@ -41,10 +43,14 @@ In Javascript this is defined as:
+ const T = Math.pow(2, (255.999 - d) / 8.0) >>> 0; // >>> 0 forces it to unsigned 32bit value
+ ```
+ 
++> foudil: basically the number of leading zero bits
++
+ ### Solving the puzzle
+ 
+ First the puzzle buffer is padded with zeroes until it is 128 bytes long. Then the goal is to change the last 8 bytes of this buffer (which we will call the `solution`) until the [`blake2b-256`](<https://en.wikipedia.org/wiki/BLAKE_(hash_function)>) hash of this buffer meets this criteria:
+ 
++> foudil: maybe not obvious but BLAKE2b (SHA-3 competition finalist) has advantages over say SHA-256: performance, flexibility (like key length), features (like built-in keyed hashing—MAC).
++
+ The first 4 bytes of the `blake2b-256` hash are read as a little-endian unsigned 32 bit integer. If this integer smaller than the _difficulty threshold_ `T` for the puzzle, the `solution` is **valid**.
+ 
+ The only way to solve the puzzle is to exhaustively try different solutions. The probability of getting a solution per attempt is given by `T/(2^32-1)` (note the denominator is the maximum uint32 value), the expected number of attempts required is the inverse of that probability.
+@@ -78,7 +84,7 @@ tttt aaaa bbbb v e n d 00000000 pppppppp
+ 
+ The timestamp is in seconds since unix epoch (as unsigned 32 bit integer), the challenge nonce is a cryptographically secure random 8 byte value.
+ 
+-When sent over the network the puzzle is base64 encoded. Along with the puzzle buffer a signature is also sent (more details below). The mesage consists of those two parts with a `.` separating them:
++When sent over the network the puzzle is base64 encoded. Along with the puzzle buffer a signature is also sent (more details below). The message consists of those two parts with a `.` separating them:
+ 
+ ```
+ <signature>.<base64 encoded puzzle buffer>
+diff --git a/src/api/wasm.ts b/src/api/wasm.ts
+index b59d439..a0e7454 100644
+--- a/src/api/wasm.ts
++++ b/src/api/wasm.ts
+@@ -8,7 +8,7 @@ export async function getWasmSolver(module: any) {
+   );
+   let solution = w.exports.__getUint8Array(arrPtr);
+ 
+-  return (puzzleBuffer: Uint8Array, threshold: number, n = 4294967295) => {
++  return (puzzleBuffer: Uint8Array, threshold: number, n = 4294967295 /* 2^32 MAX_UINT */) => {
+     (solution as Uint8Array).set(puzzleBuffer);
+     const hashPtr = w.exports.solveBlake2b(arrPtr, threshold, n);
+     solution = w.exports.__getUint8Array(arrPtr);
+diff --git a/src/entryWasm.ts b/src/entryWasm.ts
+index 74809a7..94fdc9c 100644
+--- a/src/entryWasm.ts
++++ b/src/entryWasm.ts
+@@ -1,3 +1,4 @@
++// foudil: this only exports `solveBlake2b` and the buffer type to client code.
+ export { solveBlake2bEfficient as solveBlake2b } from "./solverWasm";
+ /* eslint-disable-next-line */
+-export const Uint8Array_ID = idof<Uint8Array>();
++export const Uint8Array_ID = idof<Uint8Array>(); // foudil: `idof` is asmscript
+diff --git a/src/solverWasm.ts b/src/solverWasm.ts
+index f68601a..7b08051 100644
+--- a/src/solverWasm.ts
++++ b/src/solverWasm.ts
+@@ -30,8 +30,10 @@ export function solveBlake2bEfficient(input: Uint8Array, threshold: u32, n: u32)
+     throw new Error("Invalid input");
+   }
+ 
++  // foudil: Uint8Array is an object. We need to access its data buffer. Also,
++  // compared to pointer arithmetic, direct mem access (load/store) is faster.
+   const arrayPtr = changetype<usize>(input);
+-  const bufferPtr = load<u32>(arrayPtr);
++  const bufferPtr = load<u32>(arrayPtr); // foudil: `load` from mem = deref ptr
+ 
+   const ctx = new Context(HASH_SIZE_BYTES);
+   const h = ctx.h;
+@@ -43,8 +45,8 @@ export function solveBlake2bEfficient(input: Uint8Array, threshold: u32, n: u32)
+     store<u32>(bufferPtr + 124, i);
+     // log(input.slice(124));
+ 
+-    blake2bResetForShortMessage(ctx);
+-    blake2bCompress(ctx, true, bufferPtr);
++    blake2bResetForShortMessage(ctx);         // Reset hash state to IV
++    blake2bCompress(ctx, true, bufferPtr);    // Hash the 128 bytes
+ 
+     if ((unchecked(h[0]) as u32) < threshold) {
+       return Uint8Array.wrap(h.buffer);
+diff --git a/test/solver.test.ts b/test/solver.test.ts
+index d10f5b1..17682d3 100644
+--- a/test/solver.test.ts
++++ b/test/solver.test.ts
+@@ -17,6 +17,7 @@ describe("solver", () => {
+     const hash = solveBlake2bEfficient(input, threshold, n);
+     const hashRate: f64 = (n as f64) / (((Date.now() - t) as f64) / 1000.0);
+ 
++log('__hrate='+(hashRate).toString())
+     expect(hash.length).toBe(0); // No solution found
+     expect(hashRate).toBeGreaterThan(50_000);
+   });
